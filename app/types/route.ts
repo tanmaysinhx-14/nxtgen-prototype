@@ -9,9 +9,17 @@ export interface Segment {
 
 export interface Route {
   id: string;
+  from: string;
+  to: string;
   segments: Segment[];
   totalDuration: number;
-  crowd: CrowdLevel;
+
+  crowd: "Low" | "Medium" | "High";
   accessible: boolean;
-  tag: string;
+
+  safetyScore: number;     // 1–5
+  comfortScore: number;   // 1–5
+  confidenceScore: number; // 0–1 (simulated usage)
+
+  archetype: string;
 }
