@@ -58,13 +58,18 @@ export default function Home() {
   const [destination, setDestination] = useState("");
 
   const fetchRoutes = async () => {
+    if (!source || !destination) {
+      setRoutes([]);
+      return;
+    }
+
     setLoading(true);
     const res = await fetch("/api", {
       headers: {
         "Content-Type": "application/json"
       },
       method: "POST",
-      body: JSON.stringify({ accessibility })
+      body: JSON.stringify({ source, destination, accessibility })
     });
     setRoutes(await res.json());
     setLoading(false);
