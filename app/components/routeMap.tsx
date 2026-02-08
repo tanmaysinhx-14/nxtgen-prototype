@@ -1,132 +1,116 @@
 "use client";
 
-import { createLeafletContext, LeafletProvider } from "@react-leaflet/core";
-import { Map as LeafletMap } from "leaflet";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { MapContainerProps } from "react-leaflet";
-import { TileLayer, Polyline, Marker } from "react-leaflet";
+import { GoogleMap, Marker, Polyline, useJsApiLoader } from "@react-google-maps/api";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { LOCATION_COORDS } from "../lib/locationCoords";
-import { Route } from "../types/route";
+import type { Route } from "../types/route";
 
 const routeColors = ["#198754", "#0d6efd", "#ffc107", "#dc3545"];
+const containerStyle = { height: "400px", width: "100%" };
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 
-function SafeMapContainer({
-  bounds,
-  boundsOptions,
-  center,
-  children,
-  className,
-  id,
-  placeholder,
-  style,
-  whenReady,
-  zoom,
-  ...options
-}: MapContainerProps) {
-  const mapRef = useRef<LeafletMap | null>(null);
-  const [context, setContext] = useState<ReturnType<typeof createLeafletContext> | null>(null);
-  const [containerProps] = useState({ className, id, style });
+type LatLng = google.maps.LatLngLiteral;
 
-  const boundsRef = useRef(bounds);
-  const boundsOptionsRef = useRef(boundsOptions);
-  const centerRef = useRef(center);
-  const zoomRef = useRef(zoom);
-  const whenReadyRef = useRef(whenReady);
-  const optionsRef = useRef(options);
+const toLatLng = (coords: { lat: number; lng: number }): LatLng => ({
+  lat: coords.lat,
+  lng: coords.lng
+});
 
-  const mapRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (!node || mapRef.current) return;
+const buildPath = (route: Route, idx: number): LatLng[] => {
+  const start = LOCATION_COORDS[route.from];
+  const end = LOCATION_COORDS[route.to];
+  const midpoint = {
+    lat: (start.lat + end.lat) / 2 + 0.003 * (idx + 1),
+    lng: (start.lng + end.lng) / 2 + 0.003 * (idx + 1)
+  };
 
-    const map = new LeafletMap(node, optionsRef.current);
+  return [toLatLng(start), midpoint, toLatLng(end)];
+};
+
+function RouteMapWithKey({ routes, apiKey }: { routes: Route[]; apiKey: string }) {
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: "nxtgen-google-maps",
+    googleMapsApiKey: apiKey
+  });
+
+  const mapRef = useRef<google.maps.Map | null>(null);
+
+  const start = LOCATION_COORDS[routes[0].from];
+  const end = LOCATION_COORDS[routes[0].to];
+  const startPosition = useMemo(() => toLatLng(start), [start]);
+  const endPosition = useMemo(() => toLatLng(end), [end]);
+  const center = startPosition;
+
+  const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
+  }, []);
 
-    if (centerRef.current != null && zoomRef.current != null) {
-      map.setView(centerRef.current, zoomRef.current);
-    } else if (boundsRef.current != null) {
-      map.fitBounds(boundsRef.current, boundsOptionsRef.current);
-    }
-
-    if (whenReadyRef.current) {
-      map.whenReady(whenReadyRef.current);
-    }
-
-    setContext(createLeafletContext(map));
+  const onUnmount = useCallback(() => {
+    mapRef.current = null;
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
+    if (!mapRef.current || !isLoaded) return;
 
-  const contents = context ? (
-    <LeafletProvider value={context}>{children}</LeafletProvider>
-  ) : (
-    placeholder ?? null
-  );
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(startPosition);
+    bounds.extend(endPosition);
+    mapRef.current.fitBounds(bounds);
+  }, [endPosition, isLoaded, startPosition]);
+
+  if (loadError) {
+    return (
+      <div className="alert alert-danger mb-0">
+        Google Maps failed to load. Check the API key and enabled APIs.
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return <p className="text-muted mb-0">Loading map...</p>;
+  }
 
   return (
-    <div {...containerProps} ref={mapRefCallback}>
-      {contents}
-    </div>
+    <GoogleMap
+      mapContainerStyle={containerStyle}
+      center={center}
+      zoom={13}
+      onLoad={onLoad}
+      onUnmount={onUnmount}
+      options={{
+        mapTypeControl: false,
+        fullscreenControl: false,
+        streetViewControl: false
+      }}
+    >
+      <Marker position={startPosition} label="A" />
+      <Marker position={endPosition} label="B" />
+
+      {routes.map((route, idx) => (
+        <Polyline
+          key={route.id}
+          path={buildPath(route, idx)}
+          options={{
+            strokeColor: routeColors[idx % routeColors.length],
+            strokeOpacity: idx === 0 ? 1 : 0.65,
+            strokeWeight: idx === 0 ? 5 : 3
+          }}
+        />
+      ))}
+    </GoogleMap>
   );
 }
 
 export default function RouteMap({ routes }: { routes: Route[] }) {
   if (!routes.length) return null;
 
-  const center = LOCATION_COORDS[routes[0].from];
+  if (!GOOGLE_MAPS_API_KEY) {
+    return (
+      <div className="alert alert-warning mb-0">
+        Set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in .env.local to load the map.
+      </div>
+    );
+  }
 
-  return (
-    <SafeMapContainer
-      center={[center.lat, center.lng]}
-      zoom={13}
-      style={{ height: "400px", width: "100%" }}
-    >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        {...({ attribution: "© OpenStreetMap contributors" } as any)}
-      />
-
-
-      {/* Markers */}
-      <Marker position={[center.lat, center.lng]} />
-      <Marker
-        position={[
-          LOCATION_COORDS[routes[0].to].lat,
-          LOCATION_COORDS[routes[0].to].lng
-        ]}
-      />
-
-      {/* Polylines */}
-      {routes.map((route, idx) => {
-        const start = LOCATION_COORDS[route.from];
-        const end = LOCATION_COORDS[route.to];
-
-        const path = [
-          [start.lat, start.lng],
-          [
-            start.lat + 0.003 * (idx + 1),
-            start.lng + 0.003 * (idx + 1)
-          ],
-          [end.lat, end.lng]
-        ];
-
-        return (
-          <Polyline
-            key={route.id}
-            positions={path}
-            pathOptions={{
-              color: routeColors[idx % routeColors.length],
-              weight: idx === 0 ? 5 : 3,
-              opacity: idx === 0 ? 1 : 0.6
-            }}
-          />
-        );
-      })}
-    </SafeMapContainer>
-  );
+  return <RouteMapWithKey routes={routes} apiKey={GOOGLE_MAPS_API_KEY} />;
 }

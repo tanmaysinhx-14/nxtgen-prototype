@@ -32,24 +32,6 @@ function explainRoute(route: Route) {
   return "Fast but crowded route";
 }
 
-function buildPolyline(route, coords) {
-  return [
-    coords[route.from],
-    ...route.segments.map(() => ({
-      lat:
-        coords[route.from].lat +
-        Math.random() * 0.01 -
-        0.005,
-      lng:
-        coords[route.from].lng +
-        Math.random() * 0.01 -
-        0.005
-    })),
-    coords[route.to]
-  ];
-}
-
-
 export default function Home() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [accessibility, setAccessibility] = useState(false);
@@ -116,7 +98,7 @@ export default function Home() {
         Find Routes
       </button>
 
-      {loading && <p className="mt-3">Loading routes…</p>}
+      {loading && <p className="mt-3">Loading routes...</p>}
 
       {routes.length > 0 && (
         <div className="mt-4">
@@ -189,3 +171,4 @@ export default function Home() {
     </div>
   );
 }
+
